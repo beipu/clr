@@ -102,6 +102,7 @@ pub enum ClewdrError {
     },
     #[snafu(display("Zip error: {}", source))]
     #[snafu(context(false))]
+    #[cfg(feature = "self-update")]
     ZipError { source: zip::result::ZipError },
     #[snafu(display("Asset Error: {}", msg))]
     AssetError { msg: String },
@@ -131,7 +132,7 @@ pub enum ClewdrError {
     #[snafu(transparent)]
     JsonRejection { source: JsonRejection },
     #[snafu(display("Rquest error: {}, source: {}", msg, source))]
-    RquestError {
+    WreqError {
         msg: &'static str,
         source: wreq::Error,
     },
@@ -401,6 +402,9 @@ impl CheckClaudeErr for Response {
         if status == 400 && err.error.message == json!("This organization has been disabled.") {
             // account disabled
             return Err(Reason::Disabled.into());
+        }
+        if status == 401 {
+            return Err(Reason::Null.into());
         }
         let inner_error = err.error;
         // check if the error is a rate limit error

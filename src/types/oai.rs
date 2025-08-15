@@ -30,11 +30,7 @@ impl From<CreateMessageParams> for ClaudeCreateMessageParams {
             .filter(|b| matches!(b, ContentBlock::Text { .. }))
             .map(|b| json!(b))
             .collect::<Vec<_>>();
-        let system = if !systems.is_empty() {
-            Some(Value::Array(systems))
-        } else {
-            None
-        };
+        let system = (!systems.is_empty()).then(|| json!(systems));
         Self {
             max_tokens: (params.max_tokens.or(params.max_completion_tokens))
                 .unwrap_or_else(default_max_tokens),
@@ -132,10 +128,8 @@ impl CreateMessageParams {
             .join("\n");
         bpe.encode_with_special_tokens(&messages).len() as u32
     }
-}
 
-impl CreateMessageParams {
-    fn safety_off(&mut self) {
+    fn optimize_for_gemini(&mut self) {
         let mut extra_body = json!({});
         extra_body["google"]["safety_settings"] = json!([
           { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF" },
@@ -148,10 +142,11 @@ impl CreateMessageParams {
           }
         ]);
         self.extra_body = Some(extra_body);
+        self.frequency_penalty = None;
     }
 
     pub fn preprocess_vertex(&mut self) {
-        self.safety_off();
+        self.optimize_for_gemini();
         self.model = self.model.trim_start_matches("google/").to_string();
         if let Some(model) = CLEWDR_CONFIG.load().vertex.model_id.to_owned() {
             self.model = model;

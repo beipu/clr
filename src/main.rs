@@ -1,20 +1,19 @@
-use std::{env, str::FromStr};
-
 use clewdr::{
     self, FIG, IS_DEBUG, VERSION_INFO,
     config::{CLEWDR_CONFIG, CONFIG_PATH, LOG_DIR},
     error::ClewdrError,
 };
 use colored::Colorize;
+#[cfg(feature = "mimalloc")]
 use mimalloc::MiMalloc;
-use tracing::{Subscriber, warn};
+use tracing::Subscriber;
 use tracing_subscriber::{
     Layer, Registry,
     fmt::{self, time::ChronoLocal},
     layer::SubscriberExt,
     registry::LookupSpan,
 };
-
+#[cfg(feature = "mimalloc")]
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
@@ -22,8 +21,10 @@ fn setup_subscriber<S>(subscriber: S)
 where
     S: Subscriber + for<'span> LookupSpan<'span> + Send + Sync + 'static,
 {
-    if env::var("CLEWDR_TOKIO_CONSOLE").is_ok_and(|v| v.to_lowercase() == "true") {
+    #[cfg(feature = "tokio-console")]
+    let subscriber = {
         // enable tokio console
+        use std::str::FromStr;
         let tokio_console_filter =
             tracing_subscriber::filter::Targets::from_str("tokio=trace,runtime=trace")
                 .expect("Failed to parse filter");
@@ -31,12 +32,9 @@ where
             // set the address the server is bound to
             .server_addr(([0, 0, 0, 0], 6669))
             .spawn();
-        let s = subscriber.with(console_layer.with_filter(tokio_console_filter));
-        tracing::subscriber::set_global_default(s).expect("unable to set global subscriber");
-    } else {
-        tracing::subscriber::set_global_default(subscriber)
-            .expect("unable to set global subscriber");
+        subscriber.with(console_layer.with_filter(tokio_console_filter))
     };
+    tracing::subscriber::set_global_default(subscriber).expect("unable to set global subscriber");
 }
 
 /// Application entry point
@@ -47,7 +45,10 @@ where
 /// Result indicating success or failure of the application execution
 #[tokio::main]
 async fn main() -> Result<(), ClewdrError> {
-    _ = enable_ansi_support::enable_ansi_support();
+    #[cfg(windows)]
+    {
+        _ = enable_ansi_support::enable_ansi_support();
+    }
     // set up logging time format
     let timer = ChronoLocal::new("%H:%M:%S%.3f".to_string());
     // set up logging
@@ -65,7 +66,7 @@ async fn main() -> Result<(), ClewdrError> {
             .with_timer(timer.to_owned())
             .with_filter(env_filter),
     );
-    let _guard = if CLEWDR_CONFIG.load().no_fs {
+    let _guard = if !CLEWDR_CONFIG.load().no_fs {
         std::fs::create_dir_all(LOG_DIR.as_path()).expect("Failed to create log directory");
         let file_appender = tracing_appender::rolling::daily(LOG_DIR.as_path(), "clewdr.log");
         let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
@@ -87,9 +88,13 @@ async fn main() -> Result<(), ClewdrError> {
 
     println!("{}\n{}", FIG, *VERSION_INFO);
 
-    let updater = clewdr::services::update::ClewdrUpdater::new()?;
-    if let Err(e) = updater.check_for_updates().await {
-        warn!("Update check failed: {}", e);
+    #[cfg(feature = "self-update")]
+    {
+        use tracing::warn;
+        let updater = clewdr::services::update::ClewdrUpdater::new()?;
+        if let Err(e) = updater.check_for_updates().await {
+            warn!("Update check failed: {}", e);
+        }
     }
 
     // print info
