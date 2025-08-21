@@ -10,6 +10,16 @@ fn main() {
 }
 
 fn android() {
+    #[cfg(all(feature = "mimalloc", feature = "dhat-heap"))]
+    compile_error!(
+        "feature \"mimalloc\" and feature \"dhat-heap\" cannot be enabled at the same time"
+    );
+    #[cfg(all(feature = "embed-resource", feature = "external-resource"))]
+    compile_error!(
+        "feature \"embed-resource\" and feature \"external-resource\" cannot be enabled at the same time"
+    );
+    #[cfg(not(any(feature = "embed-resource", feature = "external-resource")))]
+    compile_error!("feature \"embed-resource\" or feature \"external-resource\" must be enabled");
     println!("cargo:rustc-link-lib=c++_shared");
     let out_dir = env::var("OUT_DIR").unwrap();
     let output_path = env::var("CARGO_NDK_OUTPUT_PATH").unwrap_or(out_dir);
